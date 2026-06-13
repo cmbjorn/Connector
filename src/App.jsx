@@ -4,6 +4,7 @@ import { useStore } from './store.js';
 import Scene from './Scene.jsx';
 import SolverPanel from './SolverPanel.jsx';
 import { dnSizes, fittingDB } from './engine/fittings.js';
+import MTO from './MTO.jsx';
 
 // Simulate a skid that has rotated slightly around its base.
 // LEVER_ARM = distance from the equipment support/base to the nozzle face.
@@ -65,6 +66,7 @@ export default function App() {
 
   const [editA, setEditA] = useState(false);
   const [editB, setEditB] = useState(false);
+  const [showMTO, setShowMTO] = useState(false);
 
   // Skid misalignment controls (misalignment phase only).
   // nominalBDir / nominalBPos are the design-phase values captured at lock time.
@@ -372,8 +374,15 @@ export default function App() {
         </div>
 
         <div className="mt-8 pt-6 border-t border-slate-700">
-          <p className="text-xs text-slate-400">Shift flanges to test rerouting via swivel angles.</p>
+          <button
+            onClick={() => setShowMTO(true)}
+            className="w-full bg-slate-700 hover:bg-slate-600 py-2 rounded-lg text-sm font-semibold transition-colors"
+          >
+            Material Take-Off
+          </button>
         </div>
+
+        {showMTO && <MTO onClose={() => setShowMTO(false)} />}
       </div>
     </div>
   );

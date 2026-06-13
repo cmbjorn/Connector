@@ -16,6 +16,7 @@ export const fittingDB = {
     boltCircle: 50,
     boltCount: 4,
     bendRadius1_5D: 11.7,
+    boltSize: 'M12',
   },
   DN8: {
     label: 'DN8',
@@ -26,6 +27,7 @@ export const fittingDB = {
     boltCircle: 60,
     boltCount: 4,
     bendRadius1_5D: 15.9,
+    boltSize: 'M12',
   },
   DN10: {
     label: 'DN10',
@@ -36,6 +38,7 @@ export const fittingDB = {
     boltCircle: 70,
     boltCount: 4,
     bendRadius1_5D: 24.0,
+    boltSize: 'M12',
   },
   DN15: {
     label: 'DN15',
@@ -46,6 +49,7 @@ export const fittingDB = {
     boltCircle: 82.5,
     boltCount: 4,
     bendRadius1_5D: 32.0,
+    boltSize: 'M12',
   },
   DN20: {
     label: 'DN20',
@@ -56,6 +60,7 @@ export const fittingDB = {
     boltCircle: 95,
     boltCount: 4,
     bendRadius1_5D: 40.0,
+    boltSize: 'M12',
   },
   DN25: {
     label: 'DN25',
@@ -66,6 +71,7 @@ export const fittingDB = {
     boltCircle: 110,
     boltCount: 8,
     bendRadius1_5D: 50.0,
+    boltSize: 'M12',
   },
   DN32: {
     label: 'DN32',
@@ -76,6 +82,7 @@ export const fittingDB = {
     boltCircle: 125,
     boltCount: 8,
     bendRadius1_5D: 63.0,
+    boltSize: 'M16',
   },
   DN40: {
     label: 'DN40',
@@ -86,6 +93,7 @@ export const fittingDB = {
     boltCircle: 145,
     boltCount: 8,
     bendRadius1_5D: 72.5,
+    boltSize: 'M16',
   },
   DN50: {
     label: 'DN50 (2")',
@@ -96,6 +104,7 @@ export const fittingDB = {
     boltCircle: 170,
     boltCount: 8,
     bendRadius1_5D: 90.0,
+    boltSize: 'M16',
   },
   DN65: {
     label: 'DN65 (2.5")',
@@ -106,6 +115,7 @@ export const fittingDB = {
     boltCircle: 210,
     boltCount: 12,
     bendRadius1_5D: 114.0,
+    boltSize: 'M20',
   },
   DN80: {
     label: 'DN80 (3")',
@@ -116,6 +126,7 @@ export const fittingDB = {
     boltCircle: 240,
     boltCount: 12,
     bendRadius1_5D: 133.0,
+    boltSize: 'M20',
   },
 };
 
