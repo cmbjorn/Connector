@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { createPipeChain, positionError, directionErrorDeg } from './engine/slipOnRouter.js';
 import { solveMisalignment } from './engine/slipOnSolver.js';
 import { initialOrthogonalRoute } from './engine/initialRouter.js';
+import { defaultDN } from './engine/fittings.js';
 
 export const useStore = create((set, get) => ({
   flangeA: [0, 0, 0],
@@ -20,6 +21,7 @@ export const useStore = create((set, get) => ({
   solving: false,
   solverIterations: 0,
   solverHistory: [],
+  dn: defaultDN, // Pipe fitting size: DN6, DN8, ..., DN50, ..., DN80
 
   initializeSpool: () => {
     set({
@@ -131,6 +133,10 @@ export const useStore = create((set, get) => ({
         solved: result.converged,
       };
     });
+  },
+
+  setDN: (dn) => {
+    set({ dn });
   },
 
   getPath: () => {

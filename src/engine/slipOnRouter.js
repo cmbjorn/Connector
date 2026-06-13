@@ -1,7 +1,27 @@
 import * as THREE from 'three';
 
-const ELBOW_RADIUS = 0.15;
+/**
+ * The abstract bend radius used for IK geometry (scene units = meters).
+ * Determines how much each elbow advances the pipe chain positionally.
+ * This value drives both the solver and the visualization — the torus ring
+ * radius rendered in ElbowSegment equals this value exactly.
+ */
+export const ELBOW_RADIUS = 0.15;
 
+/**
+ * Advance position through a 90° elbow and update direction.
+ *
+ * Physical geometry: for a 90° elbow with ring radius R, the straight pipe
+ * ends at T_in and the next straight pipe starts at T_out where:
+ *   T_out = T_in + (inDir + outDir) * R
+ *
+ * This is the only offset consistent with a quarter-circle arc: the torus arc
+ * starts at T_in (tangent = inDir) and ends at T_out (tangent = outDir) with
+ * ring center C = T_in + outDir * R.
+ *
+ * The old code used `perp * R` which is geometrically inconsistent and made
+ * the torus impossible to orient correctly.
+ */
 function elbow(position, direction, slipRotation) {
   let perp = new THREE.Vector3();
   if (Math.abs(direction.z) < 0.9) {
@@ -13,22 +33,13 @@ function elbow(position, direction, slipRotation) {
   perp.applyQuaternion(quat);
 
   const newDir = new THREE.Vector3().crossVectors(perp, direction).normalize();
-  position.add(perp.clone().multiplyScalar(ELBOW_RADIUS));
+  // Physical 90° elbow: T_out = T_in + (inDir + outDir) * R
+  position.add(direction.clone().add(newDir).multiplyScalar(ELBOW_RADIUS));
   direction.copy(newDir);
-  return perp; // for visualization (elbow center offset)
 }
 
 /**
  * Forward kinematics: N spools, N-1 elbows.
- *
- * Chain:  FlangeA → Spool1 → [Swivel+Elbow1] → Spool2 → ... → [Swivel+Elbow(N-1)] → SpoolN → FlangeB
- *
- * Spool1 direction = flangeADirection (locked by Flange A).
- * SpoolN must arrive at flangeB in flangeBDirection → 5 constraints.
- * With N=6 spools → 5 swivel angles = 5 DOF → exactly determined.
- *
- * Design phase:  user adjusts spool lengths, solver finds swivel angles.
- * Misalignment:  lengths frozen, Flange B shifts → solver finds new swivel angles.
  */
 export function forwardKinematics(flangeA, spoolLengths, slipOnRotations, flangeADirection = [0, 0, 1]) {
   const pos = new THREE.Vector3(...flangeA);
@@ -44,15 +55,8 @@ export function forwardKinematics(flangeA, spoolLengths, slipOnRotations, flange
   return { position: pos.toArray(), direction: dir.toArray() };
 }
 
-// Weight applied to the direction residuals so the least-squares solver balances
-// position (meters) against orientation (unit-vector difference, ~0..2).
 const DIR_WEIGHT = 1.0;
 
-/**
- * Residual vector for least-squares solving: [Δx, Δy, Δz, w·Δdir].
- * Position residuals are in meters; direction residuals are the (weighted)
- * difference between the achieved and target unit direction vectors.
- */
 export function computeResiduals(flangeA, flangeB, spoolLengths, slipOnRotations, flangeADirection = [0, 0, 1], flangeBDirection = [0, 0, 1]) {
   const { position, direction } = forwardKinematics(flangeA, spoolLengths, slipOnRotations, flangeADirection);
   const targetDir = new THREE.Vector3(...flangeBDirection).normalize();
@@ -67,7 +71,6 @@ export function computeResiduals(flangeA, flangeB, spoolLengths, slipOnRotations
   ];
 }
 
-/** Position gap in meters between the chain end and Flange B. */
 export function positionError(flangeA, flangeB, spoolLengths, slipOnRotations, flangeADirection = [0, 0, 1]) {
   const { position } = forwardKinematics(flangeA, spoolLengths, slipOnRotations, flangeADirection);
   const dx = position[0] - flangeB[0];
@@ -76,7 +79,6 @@ export function positionError(flangeA, flangeB, spoolLengths, slipOnRotations, f
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-/** Angular gap in degrees between the chain end direction and Flange B direction. */
 export function directionErrorDeg(flangeA, spoolLengths, slipOnRotations, flangeADirection = [0, 0, 1], flangeBDirection = [0, 0, 1]) {
   const { direction } = forwardKinematics(flangeA, spoolLengths, slipOnRotations, flangeADirection);
   const endDir = new THREE.Vector3(...direction);
@@ -91,8 +93,14 @@ export function computeError(flangeA, flangeB, spoolLengths, slipOnRotations, fl
 }
 
 /**
- * Build the visualization structure: N spools, N-1 elbows, N-1 swivel flange discs.
- * The last spool ends at flangeB (when solved) — no separate B stub.
+ * Build the visualization structure: N spools, N-1 elbows, loose flange discs.
+ *
+ * Each elbow gets two flange discs — one at T_in (entry, end of incoming spool)
+ * and one at T_out (exit, start of outgoing spool) — matching the "flanged with
+ * loose flanges" physical arrangement.
+ *
+ * Elbow center stored here is the CENTER OF CURVATURE C = T_in + outDir * R,
+ * which is where the torus mesh should be positioned.
  */
 export function createDetailedStructure(flangeA, spoolLengths, slipOnRotations, flangeADirection = [0, 0, 1]) {
   const spools = [];
@@ -105,33 +113,47 @@ export function createDetailedStructure(flangeA, spoolLengths, slipOnRotations, 
   for (let i = 0; i < spoolLengths.length; i++) {
     const spoolStart = pos.clone();
 
-    // Swivel flange disc sits at junction entering this spool (except first — that's Flange A itself)
-    if (i > 0) {
-      flanges.push({ position: spoolStart.toArray(), direction: dir.toArray(), rotation: slipOnRotations[i - 1] ?? 0 });
-    }
-
     pos.addScaledVector(dir, spoolLengths[i]);
     spools.push({ start: spoolStart.toArray(), end: pos.toArray(), index: i });
 
     if (i < spoolLengths.length - 1) {
       const slipRotation = slipOnRotations[i] ?? 0;
 
+      // Compute outgoing direction (duplicates elbow() logic without side effects)
       let perp = new THREE.Vector3();
       if (Math.abs(dir.z) < 0.9) {
         perp.crossVectors(dir, new THREE.Vector3(0, 0, 1)).normalize();
       } else {
         perp.crossVectors(dir, new THREE.Vector3(1, 0, 0)).normalize();
       }
-      const quat = new THREE.Quaternion().setFromAxisAngle(dir.clone(), slipRotation);
-      perp.applyQuaternion(quat);
+      const q = new THREE.Quaternion().setFromAxisAngle(dir.clone(), slipRotation);
+      perp.applyQuaternion(q);
+      const outDir = new THREE.Vector3().crossVectors(perp, dir).normalize();
 
-      const newDir = new THREE.Vector3().crossVectors(perp, dir).normalize();
-      const elbowCenter = pos.clone().add(perp.clone().multiplyScalar(ELBOW_RADIUS));
+      const inDir = dir.clone();
+      const T_in = pos.clone(); // spool ends here, elbow arc starts here
 
-      elbows.push({ center: elbowCenter.toArray(), inDir: dir.toArray(), outDir: newDir.toArray(), radius: ELBOW_RADIUS, rotation: slipRotation, index: i });
+      // Center of curvature: C = T_in + outDir * R
+      const C = T_in.clone().add(outDir.clone().multiplyScalar(ELBOW_RADIUS));
 
-      pos.copy(elbowCenter);
-      dir.copy(newDir);
+      // Loose flange at elbow entry (T_in, pipe arrives from inDir)
+      flanges.push({ position: T_in.toArray(), direction: inDir.toArray(), rotation: slipRotation });
+
+      // Advance to T_out = T_in + (inDir + outDir) * R  [the elbow() call]
+      elbow(pos, dir, slipRotation);
+      const T_out = pos.clone(); // elbow arc ends here, next spool starts here
+
+      // Loose flange at elbow exit (T_out, pipe leaves in outDir)
+      flanges.push({ position: T_out.toArray(), direction: outDir.toArray(), rotation: slipRotation });
+
+      elbows.push({
+        center: C.toArray(),   // center of curvature of the torus arc
+        inDir: inDir.toArray(),
+        outDir: outDir.toArray(),
+        radius: ELBOW_RADIUS,
+        rotation: slipRotation,
+        index: i,
+      });
     }
   }
 

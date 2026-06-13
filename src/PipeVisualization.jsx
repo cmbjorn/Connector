@@ -22,12 +22,8 @@ export default function PipeVisualization() {
   const connected = solved && error < 5;
 
   // Straight runs read as plain pipe: brushed steel when connected, red on a gap.
-  const spoolColor = connected ? '#64748b' : '#b91c1c';
-
-  // Every bend in this chain is a real 90° elbow — color them all the same bold
-  // accent so the 90° fittings stand out (not keyed to swivel angle, which hid
-  // the bends whose swivel happened to sit at 0°).
-  const elbowColor = connected ? '#2563eb' : '#ef4444';
+  const spoolColor = connected ? '#b0bec5' : '#e57373';
+  const elbowColor = connected ? '#42a5f5' : '#ef5350';
 
   return (
     <>

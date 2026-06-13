@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useStore } from './store.js';
 import Scene from './Scene.jsx';
 import SolverPanel from './SolverPanel.jsx';
+import { dnSizes, fittingDB } from './engine/fittings.js';
 
 export default function App() {
   const flangeA = useStore((s) => s.flangeA);
@@ -26,6 +27,8 @@ export default function App() {
   const lockSpools = useStore((s) => s.lockSpools);
   const unlockSpools = useStore((s) => s.unlockSpools);
   const initializeSpool = useStore((s) => s.initializeSpool);
+  const dn = useStore((s) => s.dn);
+  const setDN = useStore((s) => s.setDN);
 
   const [editA, setEditA] = useState(false);
   const [editB, setEditB] = useState(false);
@@ -41,6 +44,25 @@ export default function App() {
       </div>
       <div className="w-72 bg-slate-900 text-white p-6 shadow-lg overflow-y-auto">
         <h1 className="text-2xl font-bold mb-6">3D Swivel Router</h1>
+
+        <div className="mb-6 p-3 bg-slate-800 rounded">
+          <label className="text-xs font-semibold text-slate-300 block mb-2">Pipe Size (DN/PN25)</label>
+          <select
+            value={dn}
+            onChange={(e) => setDN(e.target.value)}
+            disabled={spoolsLocked}
+            className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-white disabled:opacity-50"
+          >
+            {dnSizes.map((size) => (
+              <option key={size} value={size}>
+                {fittingDB[size].label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-slate-400 mt-2">
+            OD: {(fittingDB[dn].flangeOD).toFixed(0)}mm | Ø: {(fittingDB[dn].pipeOD).toFixed(1)}mm | 1.5D: {(fittingDB[dn].bendRadius1_5D).toFixed(0)}mm
+          </p>
+        </div>
 
         <SolverPanel />
 

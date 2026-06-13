@@ -16,10 +16,12 @@ export default function Scene() {
 
   return (
     <Canvas camera={{ position: [4, 4, 4], fov: 50 }} style={{ width: '100%', height: '100vh' }}>
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[5, 5, 5]} intensity={0.8} />
+      <color attach="background" args={['#dde3ec']} />
+      <ambientLight intensity={1.2} />
+      <directionalLight position={[5, 8, 5]} intensity={1.2} />
+      <directionalLight position={[-4, 3, -3]} intensity={0.5} color="#c8d8ff" />
 
-      <Grid args={[10, 10]} cellSize={1} cellColor="#444" sectionSize={5} sectionColor="#888" />
+      <Grid args={[10, 10]} cellSize={1} cellColor="#aab" sectionSize={5} sectionColor="#778" />
 
       <Flange position={flangeA} color="gold" direction={flangeADirection} rotation={flangeARotation} />
       <DirectionArrow position={flangeA} direction={flangeADirection} color="#fbbf24" />

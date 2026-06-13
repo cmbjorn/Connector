@@ -1,9 +1,13 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
-
-const PIPE_RADIUS = 0.08;
+import { useStore } from '../store.js';
+import { fittingDB, mmToUnit } from '../engine/fittings.js';
 
 export default function StraightSpool({ start, end, color, label }) {
+  const dn = useStore((s) => s.dn);
+  const fitting = fittingDB[dn];
+  const pipeRadius = mmToUnit(fitting.pipeOD * 0.5);
+
   const [position, rotation, length] = useMemo(() => {
     const direction = new THREE.Vector3(
       end[0] - start[0],
@@ -32,8 +36,8 @@ export default function StraightSpool({ start, end, color, label }) {
 
   return (
     <mesh position={position} rotation={rotation}>
-      <cylinderGeometry args={[PIPE_RADIUS, PIPE_RADIUS, length, 16]} />
-      <meshStandardMaterial color={color} metalness={0.6} roughness={0.4} />
+      <cylinderGeometry args={[pipeRadius, pipeRadius, length, 16]} />
+      <meshStandardMaterial color={color} metalness={0.4} roughness={0.5} />
     </mesh>
   );
 }
