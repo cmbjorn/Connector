@@ -1,8 +1,40 @@
 import { useState, useEffect } from 'react';
+import * as THREE from 'three';
 import { useStore } from './store.js';
 import Scene from './Scene.jsx';
 import SolverPanel from './SolverPanel.jsx';
 import { dnSizes, fittingDB } from './engine/fittings.js';
+
+// Simulate a skid that has rotated slightly around its base.
+// LEVER_ARM = distance from the equipment support/base to the nozzle face.
+// At 1° rotation with 0.5 m lever arm the nozzle shifts ~8.7 mm — realistic
+// for the mm-to-1cm on-site tolerances this tool is designed for.
+const LEVER_ARM = 0.5; // metres
+
+// Apply a skid rotation to both nozzle position and direction.
+// pitchDeg: rotation around the axis perpendicular to the nozzle in the
+//           vertical plane ("front/back tilt").
+// yawDeg:   rotation around the vertical axis ("left/right turn").
+// Pivot is placed LEVER_ARM behind the nozzle face along the nozzle axis.
+function skidDeviation(nominalPos, nominalDir, pitchDeg, yawDeg) {
+  const n = new THREE.Vector3(...nominalDir).normalize();
+  const ref = Math.abs(n.y) > 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+  const right = new THREE.Vector3().crossVectors(n, ref).normalize();
+  const up    = new THREE.Vector3().crossVectors(right, n).normalize();
+
+  const qPitch = new THREE.Quaternion().setFromAxisAngle(right, pitchDeg * Math.PI / 180);
+  const qYaw   = new THREE.Quaternion().setFromAxisAngle(up,    yawDeg   * Math.PI / 180);
+  const q = qYaw.multiply(qPitch);
+
+  // Pivot = nozzle face − LEVER_ARM × nozzle direction
+  const pivot  = new THREE.Vector3(...nominalPos).addScaledVector(n, -LEVER_ARM);
+  const offset = new THREE.Vector3(...nominalPos).sub(pivot).applyQuaternion(q);
+
+  return {
+    pos: pivot.clone().add(offset).toArray(),
+    dir: n.applyQuaternion(q).toArray(),
+  };
+}
 
 export default function App() {
   const flangeA = useStore((s) => s.flangeA);
@@ -26,12 +58,52 @@ export default function App() {
   const calculateSpools = useStore((s) => s.calculateSpools);
   const lockSpools = useStore((s) => s.lockSpools);
   const unlockSpools = useStore((s) => s.unlockSpools);
+  const solveForNewPosition = useStore((s) => s.solveForNewPosition);
   const initializeSpool = useStore((s) => s.initializeSpool);
   const dn = useStore((s) => s.dn);
   const setDN = useStore((s) => s.setDN);
 
   const [editA, setEditA] = useState(false);
   const [editB, setEditB] = useState(false);
+
+  // Skid misalignment controls (misalignment phase only).
+  // nominalBDir / nominalBPos are the design-phase values captured at lock time.
+  const [bPitch, setBPitch] = useState(0);
+  const [bYaw,   setBYaw]   = useState(0);
+  const [nominalBDir, setNominalBDir] = useState([0, 0, 1]);
+  const [nominalBPos, setNominalBPos] = useState([2, 2, 2]);
+
+  const handleBDirButton = (dir) => {
+    setNominalBDir(dir);
+    setBPitch(0);
+    setBYaw(0);
+    setFlangeBDirection(dir);
+  };
+
+  const handleLock = () => {
+    setNominalBDir(flangeBDirection);
+    setNominalBPos(flangeB);
+    setBPitch(0);
+    setBYaw(0);
+    lockSpools();
+  };
+
+  const handleUnlock = () => {
+    setBPitch(0);
+    setBYaw(0);
+    // Unlock first so setFlangeB below does NOT trigger an unwanted solve.
+    unlockSpools();
+    setFlangeBDirection(nominalBDir);
+    setFlangeB(nominalBPos);
+  };
+
+  // Apply a skid rotation: moves BOTH position and direction of Flange B,
+  // then lets setFlangeB (which auto-solves when locked) handle the solve.
+  const applyBDeviation = (pitch, yaw) => {
+    const { pos, dir } = skidDeviation(nominalBPos, nominalBDir, pitch, yaw);
+    setFlangeBDirection(dir);  // update direction first (synchronous in Zustand)
+    setFlangeB(pos);           // update position → auto-triggers solveMisalignment
+  };
 
   useEffect(() => {
     initializeSpool();
@@ -43,7 +115,8 @@ export default function App() {
         <Scene />
       </div>
       <div className="w-72 bg-slate-900 text-white p-6 shadow-lg overflow-y-auto">
-        <h1 className="text-2xl font-bold mb-6">3D Swivel Router</h1>
+        <h1 className="text-2xl font-bold mb-2">Teafortwo</h1>
+        <p className="text-xs text-slate-400 mb-6">3D Lap Joint Router</p>
 
         <div className="mb-6 p-3 bg-slate-800 rounded">
           <label className="text-xs font-semibold text-slate-300 block mb-2">Pipe Size (DN/PN25)</label>
@@ -89,7 +162,7 @@ export default function App() {
               Spool Lengths {spoolsLocked ? '🔒' : '🔓'}
             </h3>
             <button
-              onClick={spoolsLocked ? unlockSpools : lockSpools}
+              onClick={spoolsLocked ? handleUnlock : handleLock}
               className={`text-xs px-2 py-1 rounded ${
                 spoolsLocked
                   ? 'bg-red-600 hover:bg-red-700'
@@ -238,29 +311,63 @@ export default function App() {
             )}
           </div>
           <div className="bg-slate-700 p-2 rounded mt-2 text-xs space-y-2">
-            <label className="block text-slate-300">Direction (pipe entrance)</label>
-            <div className="grid grid-cols-3 gap-1 mb-2">
-              {[
-                [[1, 0, 0], '+X'],
-                [[0, 1, 0], '+Y'],
-                [[0, 0, 1], '+Z'],
-                [[-1, 0, 0], '-X'],
-                [[0, -1, 0], '-Y'],
-                [[0, 0, -1], '-Z'],
-              ].map(([dir, label]) => (
-                <button
-                  key={label}
-                  onClick={() => setFlangeBDirection(dir)}
-                  className={`py-1 rounded text-xs ${
-                    JSON.stringify(flangeBDirection) === JSON.stringify(dir)
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-600 text-slate-300 hover:bg-slate-500'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            {spoolsLocked ? (
+              <>
+                <p className="text-slate-300 font-semibold">Skid Misalignment</p>
+                <p className="text-slate-400 text-xs mb-2">
+                  Rotates the skid around its base ({(LEVER_ARM * 1000).toFixed(0)} mm lever arm).
+                  1° ≈ {(Math.sin(Math.PI / 180) * LEVER_ARM * 1000).toFixed(1)} mm shift.
+                </p>
+                <div className="space-y-2">
+                  {[
+                    ['Pitch', bPitch, (v) => { setBPitch(v); applyBDeviation(v, bYaw); }],
+                    ['Yaw',   bYaw,   (v) => { setBYaw(v);   applyBDeviation(bPitch, v); }],
+                  ].map(([lbl, val, onChange]) => (
+                    <div key={lbl} className="flex items-center justify-between gap-2">
+                      <label className="text-slate-300 w-8 shrink-0">{lbl}</label>
+                      <input
+                        type="range"
+                        min="-3"
+                        max="3"
+                        step="0.1"
+                        value={val}
+                        onChange={(e) => onChange(parseFloat(e.target.value))}
+                        className="flex-1"
+                      />
+                      <span className="text-yellow-300 font-mono w-16 text-right shrink-0">
+                        {val.toFixed(1)}° / {(Math.sin(val * Math.PI / 180) * LEVER_ARM * 1000).toFixed(1)} mm
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <label className="block text-slate-300">Direction (pipe entrance)</label>
+                <div className="grid grid-cols-3 gap-1 mb-2">
+                  {[
+                    [[1, 0, 0], '+X'],
+                    [[0, 1, 0], '+Y'],
+                    [[0, 0, 1], '+Z'],
+                    [[-1, 0, 0], '-X'],
+                    [[0, -1, 0], '-Y'],
+                    [[0, 0, -1], '-Z'],
+                  ].map(([dir, label]) => (
+                    <button
+                      key={label}
+                      onClick={() => handleBDirButton(dir)}
+                      className={`py-1 rounded text-xs ${
+                        JSON.stringify(nominalBDir) === JSON.stringify(dir)
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-600 text-slate-300 hover:bg-slate-500'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
