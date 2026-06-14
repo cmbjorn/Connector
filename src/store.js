@@ -106,6 +106,11 @@ export const useStore = create((set, get) => ({
 
   setFlangeA: (pos) => {
     set({ flangeA: pos });
+    // Match setFlangeB: in the locked misalignment phase, re-solve the swivels
+    // immediately so moving either nozzle updates the chain without pressing Solve.
+    if (get().spoolsLocked) {
+      get().solveForNewPosition();
+    }
   },
 
   setFlangeB: (pos) => {
