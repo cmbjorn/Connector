@@ -63,6 +63,9 @@ export default function App() {
   const initializeSpool = useStore((s) => s.initializeSpool);
   const dn = useStore((s) => s.dn);
   const setDN = useStore((s) => s.setDN);
+  const dirError = useStore((s) => s.dirError);
+  const numBends = useStore((s) => s.numBends);
+  const setNumBends = useStore((s) => s.setNumBends);
 
   const [editA, setEditA] = useState(false);
   const [editB, setEditB] = useState(false);
@@ -139,13 +142,43 @@ export default function App() {
           </p>
         </div>
 
+        <div className="mb-6 p-3 bg-slate-800 rounded">
+          <label className="text-xs font-semibold text-slate-300 block mb-2">90° Bends</label>
+          <div className="grid grid-cols-3 gap-1">
+            {[3, 4, 5].map((n) => (
+              <button
+                key={n}
+                onClick={() => setNumBends(n)}
+                disabled={spoolsLocked}
+                className={`py-1.5 rounded text-sm font-semibold disabled:opacity-40 ${
+                  numBends === n
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-slate-400 mt-2">
+            {numBends} bends → {numBends + 1} spools, {numBends} lap joints.
+            {numBends < 5 && ' Fewer DOF — may not absorb full 3D misalignment.'}
+          </p>
+        </div>
+
         <SolverPanel />
 
         <div className="mb-6 p-3 bg-slate-800 rounded">
           <p className="text-sm font-semibold mb-2">
-            Status: {solved && error < 5 ? '✅ Solved' : '❌ Gap'}
+            Status: {solved ? '✅ Solved' : '❌ Gap'}
           </p>
-          <p className="text-xs text-slate-400 mb-3">Gap: {error.toFixed(2)} mm</p>
+          <div className="text-xs text-slate-400 mb-3 space-y-0.5">
+            <p>Position gap: <span className="font-mono text-slate-300">{error.toFixed(2)} mm</span></p>
+            <p>Direction gap: <span className="font-mono text-slate-300">{Number.isFinite(dirError) ? dirError.toFixed(2) : '—'}°</span></p>
+            {!solved && numBends < 5 && (
+              <p className="text-amber-400 pt-1">Under-determined at {numBends} bends — try more bends.</p>
+            )}
+          </div>
           {spoolsLocked && (
             <div className="text-xs space-y-1 border-t border-slate-700 pt-2">
               <p className="font-semibold text-slate-300">Slip-On Rotations:</p>

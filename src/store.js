@@ -11,26 +11,45 @@ export const useStore = create((set, get) => ({
   flangeB: [2, 2, 2],
   flangeBDirection: [0, 0, 1], // Normal vector - pipe goes IN this direction
   flangeBRotation: 0, // Rotation around the normal axis (1 DOF)
-  // 6 spools: spool 1 exits FlangeA (direction locked), spool 6 enters FlangeB (direction = target).
-  // 5 elbows between them → 5 swivel angles = 5 DOF for 5 constraints (3 position + 2 direction).
+  // numBends 90° elbows → numBends swivel angles and numBends+1 spools.
+  // 5 bends = 5 DOF for 5 constraints (3 position + 2 direction): exactly
+  // determined. 4 or 3 bends are under-determined in the misalignment phase but
+  // route fine for the design and absorb small position-only shifts.
+  numBends: 5,
   spoolLengths: [0.5, 0.8, 1.0, 0.8, 0.8, 0.5],
   spoolsLocked: false,
   slipOnRotations: [0, 0, 0, 0, 0],
   solved: false,
-  error: Infinity,
+  error: Infinity, // position gap, mm
+  dirError: Infinity, // direction gap, degrees
   solving: false,
   solverIterations: 0,
   solverHistory: [],
   dn: defaultDN, // Pipe fitting size: DN6, DN8, ..., DN50, ..., DN80
 
   initializeSpool: () => {
+    const n = get().numBends;
     set({
-      slipOnRotations: [0, 0, 0, 0, 0],
+      slipOnRotations: new Array(n).fill(0),
       error: Infinity,
       solved: false,
       spoolsLocked: false,
     });
     // Auto-route on load so the initial view shows a connected chain.
+    get().calculateSpools();
+  },
+
+  setNumBends: (numBends) => {
+    if (get().spoolsLocked) return; // locked design — change bends only when unlocked
+    if (numBends < 3 || numBends > 5) return;
+    set({
+      numBends,
+      slipOnRotations: new Array(numBends).fill(0),
+      spoolLengths: new Array(numBends + 1).fill(0.5),
+      error: Infinity,
+      solved: false,
+    });
+    // Re-route with the new bend count.
     get().calculateSpools();
   },
 
@@ -49,6 +68,7 @@ export const useStore = create((set, get) => ({
     set({
       spoolLengths: newLengths,
       error: posErr * 1000,
+      dirError: dirErr,
       solved: posErr < 0.005 && dirErr < 0.5,
     });
   },
@@ -103,13 +123,15 @@ export const useStore = create((set, get) => ({
         state.flangeA,
         state.flangeB,
         state.flangeADirection,
-        state.flangeBDirection
+        state.flangeBDirection,
+        state.numBends
       );
 
       return {
         spoolLengths: result.spoolLengths,
         slipOnRotations: result.rotations,
         error: result.error,
+        dirError: result.dirErrorDeg,
         solved: result.converged,
       };
     });
@@ -130,6 +152,7 @@ export const useStore = create((set, get) => ({
       return {
         slipOnRotations: result.rotations,
         error: result.error,
+        dirError: result.dirErrorDeg,
         solved: result.converged,
       };
     });

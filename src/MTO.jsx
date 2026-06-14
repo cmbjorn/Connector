@@ -1,13 +1,14 @@
 import { useStore } from './store.js';
 import { fittingDB } from './engine/fittings.js';
 
-// 10 bolted lap-joint connections in the chain (5 elbows × 2 ends).
-const N_CONNECTIONS = 10;
-
 export default function MTO({ onClose }) {
   const spoolLengths = useStore((s) => s.spoolLengths);
   const dn = useStore((s) => s.dn);
+  const numBends = useStore((s) => s.numBends);
   const f = fittingDB[dn];
+
+  // One bolted lap-joint connection at each end of every elbow.
+  const N_CONNECTIONS = numBends * 2;
 
   const totalMm = Math.round(spoolLengths.reduce((s, l) => s + l * 1000, 0));
 
@@ -23,28 +24,28 @@ export default function MTO({ onClose }) {
 
   const fittingRows = [
     {
-      tag: 'E1–E5',
+      tag: `E1–E${numBends}`,
       desc: '90° Elbow, 1.5D LR',
       spec: `${dn} PN25`,
-      qty: 5,
+      qty: numBends,
       unit: 'ea',
     },
     {
-      tag: 'LJF1–10',
+      tag: `LJF1–${N_CONNECTIONS}`,
       desc: 'Lap joint flange (loose)',
       spec: `${dn} PN25`,
       qty: N_CONNECTIONS,
       unit: 'ea',
     },
     {
-      tag: 'SE1–10',
+      tag: `SE1–${N_CONNECTIONS}`,
       desc: 'Stub end, Type A',
       spec: `${dn} PN25`,
       qty: N_CONNECTIONS,
       unit: 'ea',
     },
     {
-      tag: 'G1–10',
+      tag: `G1–${N_CONNECTIONS}`,
       desc: 'Gasket, spiral wound, SS/graphite',
       spec: `${dn} PN25`,
       qty: N_CONNECTIONS,
