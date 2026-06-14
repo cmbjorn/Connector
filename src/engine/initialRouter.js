@@ -80,43 +80,50 @@ function enumerateSequences(dirA, dirB, N) {
   return results;
 }
 
-const MIN_LEN = 0.1;
+const MIN_LEN = 0.1; // shortest allowed spool (a real stub still exists off each nozzle)
 
 /**
- * Solve the middle spool lengths for one candidate direction sequence.
- * End legs (leg 0 and leg N) are fixed-length stubs; the N-1 middle legs are
- * solved to land on Flange B. Returns lengths, swivel angles, and a score.
+ * Solve the spool lengths for one candidate direction sequence.
+ *
+ * ALL legs are free (each floored at MIN_LEN), including the two end spools off
+ * the nozzles. With few bends the end legs often have to grow — e.g. two flanges
+ * both on +Z can only reach a large Z offset by lengthening the first and/or
+ * last spool, since no middle leg lies on that axis. Fixing the ends at a stub
+ * length (the old behaviour) made such 3-bend routes unsolvable.
+ *
+ * Returns lengths, swivel angles, and a score (lower = better).
  */
-function solveCandidate(flangeA, flangeB, dirs, dirA, stub) {
+function solveCandidate(flangeA, flangeB, dirs, dirA) {
   const N = dirs.length - 1;
   const angles = [];
   for (let i = 0; i < N; i++) angles.push(swivelAngleFor(dirs[i], dirs[i + 1]));
 
-  const nMid = N - 1;
-  const residualFn = (m) => {
-    const { position } = forwardKinematics(flangeA, [stub, ...m, stub], angles, dirA);
+  const nLegs = N + 1;
+  const residualFn = (L) => {
+    const lengths = L.map((x) => Math.max(MIN_LEN, x));
+    const { position } = forwardKinematics(flangeA, lengths, angles, dirA);
     return [position[0] - flangeB[0], position[1] - flangeB[1], position[2] - flangeB[2]];
   };
 
-  let mid = solveLM(new Array(nMid).fill(0.5), residualFn, { maxIter: 200 }).x;
+  let lengths = solveLM(new Array(nLegs).fill(0.5), residualFn, { maxIter: 300 }).x
+    .map((L) => Math.max(MIN_LEN, L));
 
-  // Clamp negatives/short legs, then hold the pinned legs and re-solve the free
-  // ones so a leg floored at MIN_LEN doesn't drag the endpoint off target.
-  let lengths = mid.map((L) => Math.max(MIN_LEN, L));
+  // A leg floored at MIN_LEN can drag the endpoint off target; hold the pinned
+  // legs and re-solve the free ones to absorb that displacement.
   for (let pass = 0; pass < 4; pass++) {
     const free = lengths.map((L, k) => (L > MIN_LEN + 1e-6 ? k : -1)).filter((k) => k >= 0);
     if (free.length === 0) break;
     const resFn = (fv) => {
       const m = lengths.slice();
       free.forEach((k, j) => (m[k] = Math.max(MIN_LEN, fv[j])));
-      const { position } = forwardKinematics(flangeA, [stub, ...m, stub], angles, dirA);
+      const { position } = forwardKinematics(flangeA, m, angles, dirA);
       return [position[0] - flangeB[0], position[1] - flangeB[1], position[2] - flangeB[2]];
     };
-    const sol = solveLM(free.map((k) => lengths[k]), resFn, { maxIter: 100 }).x;
+    const sol = solveLM(free.map((k) => lengths[k]), resFn, { maxIter: 150 }).x;
     free.forEach((k, j) => (lengths[k] = Math.max(MIN_LEN, sol[j])));
   }
 
-  const spoolLengths = [stub, ...lengths, stub];
+  const spoolLengths = lengths;
   const posErr = positionError(flangeA, flangeB, spoolLengths, angles, dirA);
   const pinned = lengths.filter((L) => L <= MIN_LEN + 1e-6).length;
   const total = spoolLengths.reduce((s, L) => s + L, 0);
@@ -128,22 +135,18 @@ function solveCandidate(flangeA, flangeB, dirs, dirA, stub) {
 }
 
 export function initialOrthogonalRoute(flangeA, flangeB, dirA = [0, 0, 1], dirB = [0, 0, 1], numBends = 5) {
-  const O = [flangeB[0] - flangeA[0], flangeB[1] - flangeA[1], flangeB[2] - flangeA[2]];
-  const manh = Math.abs(O[0]) + Math.abs(O[1]) + Math.abs(O[2]);
-  const stub = Math.min(0.5, Math.max(manh, 1.0) * 0.15);
-
   const sequences = enumerateSequences(dirA, dirB, numBends);
 
   let best = null;
   for (const dirs of sequences) {
-    const cand = solveCandidate(flangeA, flangeB, dirs, dirA, stub);
+    const cand = solveCandidate(flangeA, flangeB, dirs, dirA);
     if (!best || cand.score < best.score) best = cand;
   }
 
   // Fallback: no perpendicular sequence exists (shouldn't happen for N≥3 with
   // axis-aligned flanges, but stay safe) — return a straight stub guess.
   if (!best) {
-    const spoolLengths = new Array(numBends + 1).fill(stub);
+    const spoolLengths = new Array(numBends + 1).fill(MIN_LEN);
     return {
       spoolLengths,
       rotations: new Array(numBends).fill(0),
