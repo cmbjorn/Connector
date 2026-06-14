@@ -406,7 +406,22 @@ export default function App() {
           </div>
         </div>
 
-        <div className="mt-8 pt-6 border-t border-slate-700">
+        <details className="mt-8 pt-6 border-t border-slate-700 text-xs text-slate-400">
+          <summary className="cursor-pointer font-semibold text-slate-300 mb-2">
+            How to use
+          </summary>
+          <ol className="list-decimal list-inside space-y-1 mt-2">
+            <li>Set <span className="text-slate-300">Flange A &amp; B</span> position and direction.</li>
+            <li>Pick the number of <span className="text-slate-300">90° bends</span> (5 = most flexible).</li>
+            <li><span className="text-slate-300">Calculate Spools</span> to route, then tune lengths.</li>
+            <li><span className="text-slate-300">Lock</span> to fix the fabricated design.</li>
+            <li>Move a flange or use <span className="text-slate-300">Pitch/Yaw</span> to apply site misalignment — the swivels re-solve live.</li>
+            <li>Green = compensated. A gap means it's out of range (try more bends).</li>
+            <li><span className="text-slate-300">Material Take-Off</span> for the cut list &amp; CSV.</li>
+          </ol>
+        </details>
+
+        <div className="mt-6">
           <button
             onClick={() => setShowMTO(true)}
             className="w-full bg-slate-700 hover:bg-slate-600 py-2 rounded-lg text-sm font-semibold transition-colors"
