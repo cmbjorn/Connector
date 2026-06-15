@@ -163,26 +163,45 @@ function jacobiMinOrth(flangeA, flangeB, spoolLengths, angles, dirA, dirB) {
 }
 
 /**
- * Search for a non-singular (length, angle) design that reaches flangeB.
- * Used as a fallback when the axis-aligned design is kinematically singular.
- * Returns null if no non-singular design is found within the trial budget.
+ * Find a non-singular design by searching over randomised spool lengths.
+ *
+ * The axis-aligned singularity is caused by symmetric spool lengths; slightly
+ * asymmetric lengths combined with fresh angle starts break it.  Perturbing
+ * the angles directly fails because it either leaves the direction constraint
+ * unsatisfied or produces near-zero orth for the pairs that preserve direction.
+ *
+ * Strategy: draw random spool lengths in [0.5·avg, 1.8·avg] with a small
+ * asymmetric taper — lengths that stay in a "reasonable" range so the pipe
+ * doesn't look absurdly long. Then use the full 5D LM solver (computeResiduals:
+ * 3 position + 2 direction residuals, 5 swivel unknowns) with a warm start
+ * near the seed angles, so the resulting pipe has similar routing and looks
+ * conventionally staircase-like. Require orth > 0.20 and no spool ≤ MIN_LEN.
  */
-function findNonSingularDesign(flangeA, flangeB, dirA, dirB, numBends) {
+function findNonSingularDesign(flangeA, flangeB, dirA, dirB, numBends, seedAngles, seedLengths) {
   const n = numBends;
+
   const dist = Math.sqrt(
     (flangeB[0] - flangeA[0]) ** 2 +
     (flangeB[1] - flangeA[1]) ** 2 +
     (flangeB[2] - flangeA[2]) ** 2,
   );
-  const scale = Math.max(0.3, dist * 0.5);
+  const avgLen = Math.max(MIN_LEN + 0.1, dist / (n + 1));
+  const lo = avgLen * 0.5;
+  const hi = avgLen * 1.8;
 
-  let best = null;
-  for (let trial = 0; trial < 200; trial++) {
-    // Random asymmetric spool lengths — asymmetry is what breaks the singularity.
-    const lens = new Array(n + 1).fill(0).map((_, k) =>
-      Math.max(MIN_LEN, (0.2 + Math.random()) * scale * (1 + 0.5 * Math.sin(k * 2.1))),
-    );
-    const start = new Array(n).fill(0).map(() => (Math.random() * 2 - 1) * Math.PI);
+  for (let trial = 0; trial < 120; trial++) {
+    // Asymmetric lengths: each spool independently drawn in [lo, hi].
+    // The seed lengths are used as the center of the distribution for the first
+    // quarter of trials so the initial candidates stay close to the design.
+    const lens = seedLengths && trial < 30
+      ? seedLengths.map((L) => Math.max(lo, Math.min(hi, L + (Math.random() * 2 - 1) * avgLen * 0.4)))
+      : new Array(n + 1).fill(0).map(() => lo + Math.random() * (hi - lo));
+
+    // Warm start near the seed angles for the first half, fully random later.
+    const start = trial < 60
+      ? seedAngles.map((a) => a + (Math.random() * 2 - 1) * Math.PI / 3)
+      : new Array(n).fill(0).map(() => (Math.random() * 2 - 1) * Math.PI);
+
     const res = solveLM(
       start,
       (x) => computeResiduals(flangeA, flangeB, lens, x, dirA, dirB),
@@ -191,11 +210,14 @@ function findNonSingularDesign(flangeA, flangeB, dirA, dirB, numBends) {
     const pe = positionError(flangeA, flangeB, lens, res.x, dirA);
     const de = directionErrorDeg(flangeA, lens, res.x, dirA, dirB);
     if (pe > 0.001 || de > 0.5) continue;
+
+    const pinned = lens.filter((L) => L <= MIN_LEN + 1e-4).length;
+    if (pinned > 0) continue;
+
     const orth = jacobiMinOrth(flangeA, flangeB, lens, res.x, dirA, dirB);
-    if (!best || orth > best.orth) best = { spoolLengths: lens, angles: res.x, orth, pe };
-    if (orth > 0.05) break; // good enough
+    if (orth > 0.20) return { spoolLengths: lens, angles: res.x, orth, pe };
   }
-  return (best && best.orth > 0.05) ? best : null;
+  return null;
 }
 
 export function initialOrthogonalRoute(flangeA, flangeB, dirA = [0, 0, 1], dirB = [0, 0, 1], numBends = 5) {
@@ -231,7 +253,7 @@ export function initialOrthogonalRoute(flangeA, flangeB, dirA = [0, 0, 1], dirB 
   if (converged && numBends === 5) {
     const orth = jacobiMinOrth(flangeA, flangeB, best.spoolLengths, best.angles, dirA, dirB);
     if (orth < 0.05) {
-      const alt = findNonSingularDesign(flangeA, flangeB, dirA, dirB, numBends);
+      const alt = findNonSingularDesign(flangeA, flangeB, dirA, dirB, numBends, best.angles, best.spoolLengths);
       if (alt) {
         return {
           spoolLengths: alt.spoolLengths,
