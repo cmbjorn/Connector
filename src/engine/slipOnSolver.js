@@ -56,25 +56,46 @@ export function solveSlipOn(spoolLengths, flangeA, flangeB, initialRotations = n
 /**
  * MISALIGNMENT phase solve (spool lengths locked).
  *
- * Unlike solveSlipOn this is purely LOCAL: it runs Levenberg-Marquardt from the
- * locked-in reference angles with NO random restarts, so the slip-on flanges
- * rotate as little as possible to absorb the shift instead of jumping to a
- * different routing branch. If it can't reach the shifted target from here, that
- * correctly means the misalignment exceeds the compensation range (infeasible).
+ * Primary: local LM from the reference (locked) angles — minimal rotation, no
+ * branch jumps.  If the primary solve stalls, up to WARM_RESTARTS attempts are
+ * made from angles perturbed by ±PERTURB radians (≤45°).  That is tight enough
+ * to stay on the same routing branch while being wide enough to escape local
+ * minima near the feasibility boundary.  Full random restarts are intentionally
+ * avoided so the displayed chain never jumps to a different topology.
  */
 export function solveMisalignment(spoolLengths, flangeA, flangeB, refRotations, flangeADirection = [0, 0, 1], flangeBDirection = [0, 0, 1]) {
   const n = spoolLengths.length - 1;
   const start = refRotations && refRotations.length === n ? [...refRotations] : new Array(n).fill(0);
   const residualFn = (x) => computeResiduals(flangeA, flangeB, spoolLengths, x, flangeADirection, flangeBDirection);
 
-  const r = solveLM(start, residualFn, { maxIter: 300 });
-  const posErr = positionError(flangeA, flangeB, spoolLengths, r.x, flangeADirection);
-  const dirErr = directionErrorDeg(flangeA, spoolLengths, r.x, flangeADirection, flangeBDirection);
+  const evaluate = (x) => ({
+    posErr: positionError(flangeA, flangeB, spoolLengths, x, flangeADirection),
+    dirErr: directionErrorDeg(flangeA, spoolLengths, x, flangeADirection, flangeBDirection),
+  });
+
+  const converged = (e) => e.posErr < POS_TOL_M && e.dirErr < DIR_TOL_DEG;
+
+  let best = solveLM(start, residualFn, { maxIter: 300 });
+  let bestEval = evaluate(best.x);
+
+  // Warm restarts — only pay the cost when primary solve did not converge.
+  if (!converged(bestEval)) {
+    const WARM_RESTARTS = 12;
+    const PERTURB = Math.PI / 4; // ±45° — stays within the same routing branch
+    for (let i = 0; i < WARM_RESTARTS && !converged(bestEval); i++) {
+      const guess = start.map((a) => a + (Math.random() * 2 - 1) * PERTURB);
+      const cand = solveLM(guess, residualFn, { maxIter: 300 });
+      if (cand.cost < best.cost) {
+        best = cand;
+        bestEval = evaluate(cand.x);
+      }
+    }
+  }
 
   return {
-    rotations: r.x,
-    error: posErr * 1000, // mm
-    dirErrorDeg: dirErr,
-    converged: posErr < POS_TOL_M && dirErr < DIR_TOL_DEG,
+    rotations: best.x,
+    error: bestEval.posErr * 1000, // mm
+    dirErrorDeg: bestEval.dirErr,
+    converged: converged(bestEval),
   };
 }
