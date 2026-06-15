@@ -390,6 +390,42 @@ export default function App() {
             </p>
           )}
 
+          {spoolsLocked && (() => {
+            const dx = (flangeB[0] - nominalBPos[0]) * 1000;
+            const dy = (flangeB[1] - nominalBPos[1]) * 1000;
+            const dz = (flangeB[2] - nominalBPos[2]) * 1000;
+            const total = Math.sqrt(dx*dx + dy*dy + dz*dz);
+            const dnNum = parseInt(dn.replace('DN', ''), 10) || 0;
+            const limit = dnNum <= 150 ? 1.5 : 3.0;
+            const ok = total <= limit;
+            return (
+              <div className="pt-2 border-t border-slate-700 space-y-1">
+                <div className="flex justify-between items-baseline">
+                  <p className="text-xs font-semibold text-slate-300">
+                    ASME PCC-1 lateral offset
+                  </p>
+                  <span className={`text-xs font-semibold ${ok ? 'text-green-400' : 'text-red-400'}`}>
+                    {ok ? '✓ within' : '✗ exceeds'} {limit} mm
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1 text-xs font-mono">
+                  {[['ΔX', dx], ['ΔY', dy], ['ΔZ', dz]].map(([lbl, v]) => (
+                    <div key={lbl} className="flex justify-between bg-slate-700 rounded px-1.5 py-0.5">
+                      <span className="text-slate-400">{lbl}</span>
+                      <span className="text-slate-200">{v.toFixed(1)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-400">Total offset</span>
+                  <span className={`font-mono ${ok ? 'text-green-400' : 'text-red-400'}`}>
+                    {total.toFixed(2)} mm
+                  </span>
+                </div>
+              </div>
+            );
+          })()}
+
           {spoolsLocked && slipOnRotations.length > 0 && (
             <div className="pt-2 border-t border-slate-700">
               <p className="text-xs font-semibold text-slate-300 mb-1">Swivel angles</p>

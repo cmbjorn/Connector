@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { forwardKinematics, positionError, directionErrorDeg } from './slipOnRouter.js';
+import { forwardKinematics, positionError, directionErrorDeg, computeResiduals } from './slipOnRouter.js';
 import { solveLM } from './lm.js';
 
 /**
@@ -134,6 +134,70 @@ function solveCandidate(flangeA, flangeB, dirs, dirA) {
   return { spoolLengths, angles, posErr, pinned, score };
 }
 
+/**
+ * Minimum pairwise column-cosine orthogonality of the IK Jacobian.
+ * Returns a value in [0, 1]: 0 = singular (two columns parallel/anti-parallel),
+ * 1 = perfectly orthogonal.  Values < 0.05 indicate a kinematic singularity
+ * where the chain cannot independently control all DOFs.
+ */
+function jacobiMinOrth(flangeA, flangeB, spoolLengths, angles, dirA, dirB) {
+  const n = angles.length;
+  const FD = 1e-5;
+  const r0 = computeResiduals(flangeA, flangeB, spoolLengths, angles, dirA, dirB);
+  const cols = angles.map((a, j) => {
+    const a2 = [...angles]; a2[j] += FD;
+    const r1 = computeResiduals(flangeA, flangeB, spoolLengths, a2, dirA, dirB);
+    return r1.map((v, i) => (v - r0[i]) / FD);
+  });
+  let minOrth = 1;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const ni = Math.sqrt(cols[i].reduce((s, v) => s + v * v, 0));
+      const nj = Math.sqrt(cols[j].reduce((s, v) => s + v * v, 0));
+      if (ni < 1e-10 || nj < 1e-10) { minOrth = 0; continue; }
+      const c = Math.abs(cols[i].reduce((s, v, k) => s + v * cols[j][k], 0) / (ni * nj));
+      if (c > 1 - minOrth) minOrth = 1 - c;
+    }
+  }
+  return minOrth;
+}
+
+/**
+ * Search for a non-singular (length, angle) design that reaches flangeB.
+ * Used as a fallback when the axis-aligned design is kinematically singular.
+ * Returns null if no non-singular design is found within the trial budget.
+ */
+function findNonSingularDesign(flangeA, flangeB, dirA, dirB, numBends) {
+  const n = numBends;
+  const dist = Math.sqrt(
+    (flangeB[0] - flangeA[0]) ** 2 +
+    (flangeB[1] - flangeA[1]) ** 2 +
+    (flangeB[2] - flangeA[2]) ** 2,
+  );
+  const scale = Math.max(0.3, dist * 0.5);
+
+  let best = null;
+  for (let trial = 0; trial < 200; trial++) {
+    // Random asymmetric spool lengths — asymmetry is what breaks the singularity.
+    const lens = new Array(n + 1).fill(0).map((_, k) =>
+      Math.max(MIN_LEN, (0.2 + Math.random()) * scale * (1 + 0.5 * Math.sin(k * 2.1))),
+    );
+    const start = new Array(n).fill(0).map(() => (Math.random() * 2 - 1) * Math.PI);
+    const res = solveLM(
+      start,
+      (x) => computeResiduals(flangeA, flangeB, lens, x, dirA, dirB),
+      { maxIter: 200 },
+    );
+    const pe = positionError(flangeA, flangeB, lens, res.x, dirA);
+    const de = directionErrorDeg(flangeA, lens, res.x, dirA, dirB);
+    if (pe > 0.001 || de > 0.5) continue;
+    const orth = jacobiMinOrth(flangeA, flangeB, lens, res.x, dirA, dirB);
+    if (!best || orth > best.orth) best = { spoolLengths: lens, angles: res.x, orth, pe };
+    if (orth > 0.05) break; // good enough
+  }
+  return (best && best.orth > 0.05) ? best : null;
+}
+
 export function initialOrthogonalRoute(flangeA, flangeB, dirA = [0, 0, 1], dirB = [0, 0, 1], numBends = 5) {
   const sequences = enumerateSequences(dirA, dirB, numBends);
 
@@ -157,12 +221,34 @@ export function initialOrthogonalRoute(flangeA, flangeB, dirA = [0, 0, 1], dirB 
   }
 
   const dirErr = directionErrorDeg(flangeA, best.spoolLengths, best.angles, dirA, dirB);
+  const converged = best.posErr < 0.005 && dirErr < 0.5;
+
+  // Detect kinematic singularity: axis-aligned routes for symmetric flange
+  // configurations (e.g. both pointing +Z, equal XYZ offsets) produce designs
+  // where two swivel angles cancel each other — the Jacobian loses rank and the
+  // misalignment solver cannot find solutions for ANY displacement.  When this
+  // happens, swap in a non-singular design with asymmetric spool lengths.
+  if (converged && numBends === 5) {
+    const orth = jacobiMinOrth(flangeA, flangeB, best.spoolLengths, best.angles, dirA, dirB);
+    if (orth < 0.05) {
+      const alt = findNonSingularDesign(flangeA, flangeB, dirA, dirB, numBends);
+      if (alt) {
+        return {
+          spoolLengths: alt.spoolLengths,
+          rotations: alt.angles,
+          error: alt.pe * 1000,
+          dirErrorDeg: directionErrorDeg(flangeA, alt.spoolLengths, alt.angles, dirA, dirB),
+          converged: true,
+        };
+      }
+    }
+  }
 
   return {
     spoolLengths: best.spoolLengths,
     rotations: best.angles,
     error: best.posErr * 1000, // mm
     dirErrorDeg: dirErr,
-    converged: best.posErr < 0.005 && dirErr < 0.5, // within 5 mm and aligned
+    converged,
   };
 }

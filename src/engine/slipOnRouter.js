@@ -67,10 +67,10 @@ export function computeResiduals(flangeA, flangeB, spoolLengths, slipOnRotations
   const t = new THREE.Vector3(...flangeBDirection).normalize(); // target direction (unit)
 
   // Project direction error onto two orthogonal tangent vectors of t.
-  // Using 3 components of (d - t) is REDUNDANT (both are unit vectors so the
-  // 3rd component is determined by the first two), producing a rank-deficient
-  // 6×5 Jacobian that causes LM to stall.  Two tangent components give an
-  // exact 5×5 square system and converge reliably.
+  // Two tangent components give an exact 5×5 square system with the 5 swivel
+  // angles.  Using 3 components of (d − t) would be rank-deficient near d≈t
+  // (both are unit vectors, so the 3rd component is determined by the first two
+  // there) producing a degenerate Jacobian.
   const ref = Math.abs(t.z) < 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
   const u = new THREE.Vector3().crossVectors(t, ref).normalize();
   const v = new THREE.Vector3().crossVectors(t, u).normalize();

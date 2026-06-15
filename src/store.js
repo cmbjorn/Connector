@@ -19,6 +19,7 @@ export const useStore = create((set, get) => ({
   spoolLengths: [0.5, 0.8, 1.0, 0.8, 0.8, 0.5],
   spoolsLocked: false,
   slipOnRotations: [0, 0, 0, 0, 0],
+  lockedRotations: null,   // angles saved at lock time — misalignment warm-restart base
   solved: false,
   error: Infinity, // position gap, mm
   dirError: Infinity, // direction gap, degrees
@@ -74,16 +75,19 @@ export const useStore = create((set, get) => ({
   },
 
   lockSpools: () => {
-    // Freeze the design exactly as routed — keep the solved swivel angles so the
-    // chain stays put. They become the reference the misalignment solver adjusts
-    // from. (Resetting them to zero here collapsed the layout on lock.)
-    set({ spoolsLocked: true });
+    // Freeze the design and snapshot the current angles as the warm-restart
+    // reference for all subsequent misalignment solves.
+    set((state) => ({
+      spoolsLocked: true,
+      lockedRotations: [...state.slipOnRotations],
+    }));
   },
 
   unlockSpools: () => {
     set((state) => ({
       spoolsLocked: false,
-      flangeARotation: 0, // Reset to aligned when unlocking
+      lockedRotations: null,
+      flangeARotation: 0,
       flangeBRotation: 0,
     }));
   },
@@ -144,18 +148,22 @@ export const useStore = create((set, get) => ({
 
   solveForNewPosition: () => {
     set((state) => {
-      // Local solve from the current angles — slip-on flanges adjust minimally to
-      // absorb the shift rather than re-routing. Non-convergence = out of range.
+      // refRotations = locked design angles (warm-restart base, always valid).
+      // startRotations = current angles (primary LM start, good for incremental steps).
       const result = solveMisalignment(
         state.spoolLengths,
         state.flangeA,
         state.flangeB,
-        state.slipOnRotations,
+        state.lockedRotations ?? state.slipOnRotations,
         state.flangeADirection,
-        state.flangeBDirection
+        state.flangeBDirection,
+        state.slipOnRotations,
       );
       return {
-        slipOnRotations: result.rotations,
+        // Only update the displayed angles when the solve converged. A failed
+        // solve returns a bad local minimum — writing it back would corrupt the
+        // starting point for the next attempt and cause cascading red-pipe failures.
+        slipOnRotations: result.converged ? result.rotations : state.slipOnRotations,
         error: result.error,
         dirError: result.dirErrorDeg,
         solved: result.converged,
