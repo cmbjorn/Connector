@@ -55,19 +55,33 @@ export function forwardKinematics(flangeA, spoolLengths, slipOnRotations, flange
   return { position: pos.toArray(), direction: dir.toArray() };
 }
 
-const DIR_WEIGHT = 1.0;
+// Scales direction residuals relative to position (both in comparable units).
+// 0.5 ≈ "half a metre per radian" — 1° direction error ≈ 0.5·sin(1°) ≈ 0.009,
+// comparable to a 9 mm position error.  Keeps J well-conditioned.
+const DIR_WEIGHT = 0.5;
 
 export function computeResiduals(flangeA, flangeB, spoolLengths, slipOnRotations, flangeADirection = [0, 0, 1], flangeBDirection = [0, 0, 1]) {
   const { position, direction } = forwardKinematics(flangeA, spoolLengths, slipOnRotations, flangeADirection);
-  const targetDir = new THREE.Vector3(...flangeBDirection).normalize();
+
+  const d = new THREE.Vector3(...direction);            // endpoint direction (unit)
+  const t = new THREE.Vector3(...flangeBDirection).normalize(); // target direction (unit)
+
+  // Project direction error onto two orthogonal tangent vectors of t.
+  // Using 3 components of (d - t) is REDUNDANT (both are unit vectors so the
+  // 3rd component is determined by the first two), producing a rank-deficient
+  // 6×5 Jacobian that causes LM to stall.  Two tangent components give an
+  // exact 5×5 square system and converge reliably.
+  const ref = Math.abs(t.z) < 0.9 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+  const u = new THREE.Vector3().crossVectors(t, ref).normalize();
+  const v = new THREE.Vector3().crossVectors(t, u).normalize();
+  const dDiff = d.clone().sub(t);
 
   return [
     position[0] - flangeB[0],
     position[1] - flangeB[1],
     position[2] - flangeB[2],
-    DIR_WEIGHT * (direction[0] - targetDir.x),
-    DIR_WEIGHT * (direction[1] - targetDir.y),
-    DIR_WEIGHT * (direction[2] - targetDir.z),
+    DIR_WEIGHT * dDiff.dot(u),   // direction error — tangent component 1
+    DIR_WEIGHT * dDiff.dot(v),   // direction error — tangent component 2
   ];
 }
 

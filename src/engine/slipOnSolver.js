@@ -80,11 +80,13 @@ export function solveMisalignment(spoolLengths, flangeA, flangeB, refRotations, 
 
   // Warm restarts — only pay the cost when primary solve did not converge.
   if (!converged(bestEval)) {
-    const WARM_RESTARTS = 12;
-    const PERTURB = Math.PI / 4; // ±45° — stays within the same routing branch
+    const WARM_RESTARTS = 20;
+    const PERTURB = Math.PI / 3; // ±60° — wide enough to escape local minima,
+    // tight enough to stay on the same routing branch (full ±180° restarts
+    // cause layout jumps to mirror-image configurations).
     for (let i = 0; i < WARM_RESTARTS && !converged(bestEval); i++) {
       const guess = start.map((a) => a + (Math.random() * 2 - 1) * PERTURB);
-      const cand = solveLM(guess, residualFn, { maxIter: 300 });
+      const cand = solveLM(guess, residualFn, { maxIter: 400 });
       if (cand.cost < best.cost) {
         best = cand;
         bestEval = evaluate(cand.x);
